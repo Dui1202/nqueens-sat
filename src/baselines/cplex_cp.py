@@ -28,7 +28,7 @@ def solve_nqueens_cplex_cp(n: int, timeout: float | None = None) -> SolveResult:
 
     model.add(model.all_diff([queens[row] + row for row in range(n)]))
 
-    options = {"LogVerbosity": "Quiet"}
+    options = {"LogVerbosity": "Quiet", "Workers": 1}
     if timeout is not None:
         options["TimeLimit"] = timeout
     result = model.solve(**options)

@@ -18,6 +18,7 @@ def solve_nqueens_cp_sat(n: int, timeout: float | None = None) -> SolveResult:
     model.add_all_different([queens[row] + row for row in range(n)])
 
     solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
     if timeout is not None:
         solver.parameters.max_time_in_seconds = timeout
 

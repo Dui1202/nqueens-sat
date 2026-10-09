@@ -13,6 +13,7 @@ def solve_nqueens_cplex_mip(n: int, timeout: float | None = None) -> SolveResult
     model.set_error_stream(None)
     model.set_warning_stream(None)
     model.set_results_stream(None)
+    model.parameters.threads.set(1)
     if timeout is not None:
         model.parameters.timelimit.set(timeout)
 

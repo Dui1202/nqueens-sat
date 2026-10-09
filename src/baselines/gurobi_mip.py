@@ -11,6 +11,7 @@ def solve_nqueens_gurobi(n: int, timeout: float | None = None) -> SolveResult:
     model = gp.Model("n_queens")
 
     model.Params.OutputFlag = 0
+    model.Params.Threads = 1
     if timeout is not None:
         model.Params.TimeLimit = timeout
 

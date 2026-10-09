@@ -10,6 +10,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -17,20 +18,10 @@ from typing import Callable
 from uuid import uuid4
 
 import psutil
-from pysat.formula import IDPool
-from pysat.solvers import Solver
+from src import solver as sat_solver
 
-from src.sat_encodings.binary import BinaryEncoder
-from src.sat_encodings.commander import CommanderEncoder
-from src.sat_encodings.pairwise import PairWiseEncoder
-from src.sat_encodings.product import ProductEncoder
-from src.sat_encodings.sequential import SequentialEncoder
 from src.variables import var_id
 
-from src.baselines.cp_sat import solve_nqueens_cp_sat
-from src.baselines.gurobi_mip import solve_nqueens_gurobi
-from src.baselines.cplex_mip import solve_nqueens_cplex_mip
-from src.baselines.cplex_cp import solve_nqueens_cplex_cp
 from src.baselines.result import SolveResult
 from src.baselines.errors import solver_error_status
 
@@ -45,8 +36,6 @@ WARMUP_RUNS = 1
 
 TIMEOUT_SECONDS = 60.0
 MEMORY_SAMPLE_INTERVAL_SECONDS = 0.01
-
-SAT_SOLVER = "cadical195"
 
 RESULTS_DIR = Path("results")
 
@@ -85,12 +74,17 @@ class BenchmarkResult:
 
 
 SAT_ENCODERS = {
-    "pairwise": PairWiseEncoder,
-    "binary": BinaryEncoder,
-    "sequential": SequentialEncoder,
-    "commander": CommanderEncoder,
-    "product": ProductEncoder,
+    "pairwise": ("src.sat_encodings.pairwise", "PairWiseEncoder"),
+    "binary": ("src.sat_encodings.binary", "BinaryEncoder"),
+    "sequential": ("src.sat_encodings.sequential", "SequentialEncoder"),
+    "commander": ("src.sat_encodings.commander", "CommanderEncoder"),
+    "product": ("src.sat_encodings.product", "ProductEncoder"),
 }
+
+
+def load_sat_encoder(name: str):
+    module_name, class_name = SAT_ENCODERS[name]
+    return getattr(import_module(module_name), class_name)
 
 
 # ============================================================
@@ -101,9 +95,9 @@ SAT_ENCODERS = {
 def build_sat_nqueens(
     n: int,
     encoder_type,
-) -> list[list[int]]:
+) -> tuple[list[list[int]], int]:
     """
-    Build N-Queens CNF using the selected AMO/Exactly-One encoder.
+    Return the N-Queens CNF and total allocated variable count.
 
     Board variables:
         1 .. n^2
@@ -111,6 +105,8 @@ def build_sat_nqueens(
     Auxiliary variables:
         n^2 + 1 ..
     """
+
+    from pysat.formula import IDPool
 
     pool = IDPool(start_from=n * n + 1)
     encoder = encoder_type(pool)
@@ -153,7 +149,8 @@ def build_sat_nqueens(
         if len(literals) > 1:
             clauses.extend(encoder.at_most_one(literals))
 
-    return clauses
+    # The pool starts at n² even when no auxiliary variables are allocated.
+    return clauses, pool.top
 
 
 # ============================================================
@@ -225,7 +222,10 @@ def benchmark_sat_once(
     encoding_name: str,
     solver_name: str | None = None,
 ) -> dict:
-    encoder_type = SAT_ENCODERS[encoding_name]
+    encoder_type = load_sat_encoder(encoding_name)
+    # Load the selected backend before starting solve/build timers, just as
+    # baseline adapters are loaded before their total-time measurement.
+    import_module("pysat.solvers")
 
     total_start = time.perf_counter()
 
@@ -235,7 +235,7 @@ def benchmark_sat_once(
 
     build_start = time.perf_counter()
 
-    clauses = build_sat_nqueens(
+    clauses, total_variables = build_sat_nqueens(
         n,
         encoder_type,
     )
@@ -248,18 +248,10 @@ def benchmark_sat_once(
 
     solve_start = time.perf_counter()
 
-    with Solver(
-        name=solver_name or SAT_SOLVER,
-        bootstrap_with=clauses,
-    ) as solver:
-        is_sat = solver.solve()
-
-        model = solver.get_model() if is_sat else None
+    model = sat_solver.solve_cnf(clauses, solver_name=solver_name)
+    is_sat = model is not None
 
     if is_sat:
-        if model is None:
-            raise AssertionError("SAT solver returned SAT without model.")
-
         solution = sat_model_to_columns(
             model,
             n,
@@ -271,15 +263,7 @@ def benchmark_sat_once(
     # Diagnostics and verification are outside all reported timings.
     original_variables = n * n
 
-    total_variables = max(
-        (abs(literal) for clause in clauses for literal in clause),
-        default=original_variables,
-    )
-
-    auxiliary_variables = max(
-        0,
-        total_variables - original_variables,
-    )
+    auxiliary_variables = total_variables - original_variables
 
     if is_sat:
         verify_columns_solution(solution, n)
@@ -303,25 +287,30 @@ def benchmark_sat_once(
 
 BASELINE_SOLVERS: dict[
     str,
-    tuple[str, Callable[[int, float | None], SolveResult]],
+    tuple[str, tuple[str, str]],
 ] = {
     "cp-sat": (
         "ortools-cp-sat",
-        solve_nqueens_cp_sat,
+        ("src.baselines.cp_sat", "solve_nqueens_cp_sat"),
     ),
     "gurobi": (
         "gurobi",
-        solve_nqueens_gurobi,
+        ("src.baselines.gurobi_mip", "solve_nqueens_gurobi"),
     ),
     "cplex-mip": (
         "cplex-mip",
-        solve_nqueens_cplex_mip,
+        ("src.baselines.cplex_mip", "solve_nqueens_cplex_mip"),
     ),
     "cplex-cp": (
         "cplex-cp-optimizer",
-        solve_nqueens_cplex_cp,
+        ("src.baselines.cplex_cp", "solve_nqueens_cplex_cp"),
     ),
 }
+
+
+def load_baseline_solver(method: str) -> Callable[[int, float | None], SolveResult]:
+    _, (module_name, function_name) = BASELINE_SOLVERS[method]
+    return getattr(import_module(module_name), function_name)
 
 
 def benchmark_baseline_once(
@@ -329,7 +318,7 @@ def benchmark_baseline_once(
     method: str,
     timeout: float | None = None,
 ) -> dict:
-    _, solve_function = BASELINE_SOLVERS[method]
+    solve_function = load_baseline_solver(method)
 
     start = time.perf_counter()
 
@@ -374,7 +363,7 @@ def worker(
     method: str,
     encoding: str | None,
     timeout: float,
-    sat_solver: str,
+    solver_name: str,
 ) -> None:
     try:
         # Descendants (including CP Optimizer) inherit this private group.
@@ -383,7 +372,7 @@ def worker(
         connection.send({"ready": True})
         if method == "sat":
             assert encoding is not None
-            result = benchmark_sat_once(n, encoding, sat_solver)
+            result = benchmark_sat_once(n, encoding, solver_name)
         else:
             result = benchmark_baseline_once(n, method, timeout)
         if result["status"] == "ERROR" and result.get("error"):
@@ -478,7 +467,7 @@ def run_with_timeout(
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(
         target=worker,
-        args=(sender, n, method, encoding, timeout, SAT_SOLVER),
+        args=(sender, n, method, encoding, timeout, sat_solver.SAT_SOLVER),
     )
     group_ready = False
     started = False
@@ -571,22 +560,63 @@ def append_result(
 # ============================================================
 
 
+def cpu_model_name() -> str:
+    """Read the hardware model when platform.processor() is empty or generic."""
+    try:
+        system = platform.system()
+        if system == "Linux":
+            fallback = ""
+            with Path("/proc/cpuinfo").open(encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    key, separator, value = line.partition(":")
+                    if separator and value.strip():
+                        if key.strip() == "model name":
+                            return value.strip()
+                        if key.strip() in ("Hardware", "Processor"):
+                            fallback = value.strip()
+            if fallback:
+                return fallback
+        elif system == "Darwin":
+            model = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                text=True, stderr=subprocess.DEVNULL, timeout=2,
+            ).strip()
+            if model:
+                return model
+        elif system == "Windows":
+            import winreg
+
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
+                model, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+                if model.strip():
+                    return model.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return platform.processor().strip() or "unknown"
+
+
 def save_environment(results_dir: Path) -> None:
     results_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
+    physical_ram_bytes = psutil.virtual_memory().total
     content = [
         f"experiment_id={results_dir.name}",
         f"created_utc={datetime.now(timezone.utc).isoformat()}",
         f"n_values={N_VALUES}",
         f"platform={platform.platform()}",
         f"machine={platform.machine()}",
-        f"processor={platform.processor()}",
+        f"cpu_model={cpu_model_name()}",
+        f"physical_ram_bytes={physical_ram_bytes}",
+        f"physical_ram_gib={physical_ram_bytes / 1024**3:.3f}",
         f"python={sys.version}",
         f"cpu_count={os.cpu_count()}",
-        f"sat_solver={SAT_SOLVER}",
+        f"sat_solver={sat_solver.SAT_SOLVER}",
+        "solver_threads=1",
+        "solver_import_policy=lazy_selected_backend_and_dependencies",
         f"timeout_seconds={TIMEOUT_SECONDS}",
         f"repetitions={REPETITIONS}",
         f"warmup_runs={WARMUP_RUNS}",
@@ -617,7 +647,7 @@ def benchmark_configurations():
         yield (
             "sat",
             encoding,
-            SAT_SOLVER,
+            sat_solver.SAT_SOLVER,
         )
 
     # Other exact approaches.

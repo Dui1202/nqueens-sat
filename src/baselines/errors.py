@@ -1,17 +1,19 @@
 """Classify solver failures without hiding their original diagnostic messages."""
 
 import re
-
-from cplex.exceptions import CplexSolverError
-from gurobipy import GRB, GurobiError
+import sys
 
 
 def solver_error_status(error: Exception | str) -> str:
-    if isinstance(error, GurobiError) and error.errno in (
-        GRB.Error.NO_LICENSE, GRB.Error.SIZE_LIMIT_EXCEEDED,
+    # Inspect only libraries already loaded by the selected solver. Error
+    # handling must not import another solver or require its installation.
+    gurobi = sys.modules.get("gurobipy")
+    cplex_errors = sys.modules.get("cplex.exceptions")
+    if isinstance(error, getattr(gurobi, "GurobiError", ())) and error.errno in (
+        gurobi.GRB.Error.NO_LICENSE, gurobi.GRB.Error.SIZE_LIMIT_EXCEEDED,
     ):
         return "LICENSE_LIMIT"
-    if isinstance(error, CplexSolverError) and 1016 in error.args:
+    if isinstance(error, getattr(cplex_errors, "CplexSolverError", ())) and 1016 in error.args:
         return "LICENSE_LIMIT"
 
     message = str(error).lower()

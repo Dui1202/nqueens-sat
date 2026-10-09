@@ -26,8 +26,8 @@ ENCODERS = (
 def encode_board(n, encoder_type):
     """Compose real encoders; reserve board IDs before allocating auxiliaries.
 
-    This fixture tests encoder integration independently of the application's
-    currently pairwise-only builder. Each board gets one pool and encoder.
+    This fixture tests encoder integration independently of the benchmark
+    builder. Each board gets one pool and encoder.
     """
     encoder = encoder_type(IDPool(start_from=n * n + 1))
     clauses = []
@@ -94,12 +94,14 @@ class NQueensIntegrationTests(unittest.TestCase):
                                         if 0 < literal <= n * n])
                     self.assertEqual(count, expected_count)
 
-    def test_application_builder_produces_valid_eight_queens_board(self):
+    def test_benchmark_builder_produces_valid_eight_queens_board(self):
         # Keep this import local so a broken application import does not
         # prevent the independent encoder cases from running.
-        from src.constraints import build_nqueens_cnf
+        from experiments.benchmark import build_sat_nqueens
 
-        self.assert_valid_board(solve_cnf(build_nqueens_cnf(8)), 8)
+        clauses, total_variables = build_sat_nqueens(8, PairWiseEncoder)
+        self.assertEqual(total_variables, 64)
+        self.assert_valid_board(solve_cnf(clauses), 8)
 
 
 if __name__ == "__main__":
