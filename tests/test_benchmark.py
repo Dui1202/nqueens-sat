@@ -16,7 +16,8 @@ import cplex
 from gurobipy import GRB
 from ortools.sat.python import cp_model
 
-from experiments import benchmark as benchmark
+from experiments import benchmark, cases, reporting, runner
+from src import nqueens
 from src import solver as sat_solver
 
 
@@ -38,9 +39,9 @@ class BenchmarkRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             pid_file = Path(directory) / "solver.pid"
             try:
-                with patch.object(benchmark.mp, "get_context", return_value=mp.get_context("fork")), \
-                     patch.object(benchmark, "load_baseline_solver", return_value=spawn_external_solver):
-                    result = benchmark.run_with_timeout(pid_file, "external", None, 1.0)
+                with patch.object(runner.mp, "get_context", return_value=mp.get_context("fork")), \
+                     patch.object(cases, "load_baseline_solver", return_value=spawn_external_solver):
+                    result = runner.run_with_timeout(pid_file, "external", None, 1.0)
                 self.assertEqual(result["status"], "TIMEOUT")
                 self.assertGreater(result["peak_memory_mb"], 0)
                 self.assertTrue(pid_file.exists(), "The external solver must have started")
@@ -60,12 +61,12 @@ class BenchmarkRegressionTests(unittest.TestCase):
 
     def test_cp_sat_unknown_is_not_unsat(self):
         with patch.object(cp_model.CpSolver, "solve", return_value=cp_model.UNKNOWN):
-            result = benchmark.benchmark_baseline_once(8, "cp-sat")
+            result = cases.benchmark_baseline_once(8, "cp-sat")
         self.assertEqual(result["status"], "UNKNOWN")
 
     def test_invalid_cp_sat_model_is_an_error(self):
         with patch.object(cp_model.CpSolver, "solve", return_value=cp_model.MODEL_INVALID):
-            result = benchmark.benchmark_baseline_once(8, "cp-sat")
+            result = cases.benchmark_baseline_once(8, "cp-sat")
         self.assertEqual(result["status"], "ERROR")
         self.assertTrue(result["error"])
 
@@ -74,7 +75,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
         result.__bool__.return_value = False
         result.get_solve_status.return_value = "Unknown"
         with patch("src.baselines.cplex_cp.CpoModel.solve", return_value=result):
-            row = benchmark.benchmark_baseline_once(8, "cplex-cp")
+            row = cases.benchmark_baseline_once(8, "cplex-cp")
         self.assertEqual(row["status"], "UNKNOWN")
 
     def test_cplex_mip_preserves_inconclusive_and_infeasible_statuses(self):
@@ -91,7 +92,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
                 model.solution.get_status.return_value = status
                 model.solution.is_primal_feasible.return_value = False
                 with patch("src.baselines.cplex_mip.cplex.Cplex", return_value=model):
-                    row = benchmark.benchmark_baseline_once(1, "cplex-mip", 2)
+                    row = cases.benchmark_baseline_once(1, "cplex-mip", 2)
                 self.assertEqual(row["status"], expected)
                 model.parameters.timelimit.set.assert_called_once_with(2)
                 model.parameters.threads.set.assert_called_once_with(1)
@@ -105,7 +106,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
                 model = MagicMock(Status=status, SolCount=0)
                 with patch("src.baselines.gurobi_mip.gp.Model", return_value=model), \
                      patch("src.baselines.gurobi_mip.gp.quicksum", return_value=0):
-                    row = benchmark.benchmark_baseline_once(1, "gurobi", 2)
+                    row = cases.benchmark_baseline_once(1, "gurobi", 2)
                 self.assertEqual(row["status"], expected)
                 self.assertEqual(model.Params.TimeLimit, 2)
                 self.assertEqual(model.Params.Threads, 1)
@@ -114,13 +115,13 @@ class BenchmarkRegressionTests(unittest.TestCase):
         solver = MagicMock()
         solver.solve.return_value = cp_model.UNKNOWN
         with patch("src.baselines.cp_sat.cp_model.CpSolver", return_value=solver):
-            benchmark.benchmark_baseline_once(4, "cp-sat", 2)
+            cases.benchmark_baseline_once(4, "cp-sat", 2)
         self.assertEqual(solver.parameters.max_time_in_seconds, 2)
         self.assertEqual(solver.parameters.num_search_workers, 1)
         result = MagicMock()
         result.get_solve_status.return_value = "Unknown"
         with patch("src.baselines.cplex_cp.CpoModel.solve", return_value=result) as solve:
-            benchmark.benchmark_baseline_once(4, "cplex-cp", 2)
+            cases.benchmark_baseline_once(4, "cplex-cp", 2)
         self.assertEqual(solve.call_args.kwargs["TimeLimit"], 2)
         self.assertEqual(solve.call_args.kwargs["Workers"], 1)
 
@@ -129,7 +130,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
         # the dispatcher or classify a missing-dependency error.
         subprocess.run([sys.executable, "-c", """
 import sys
-from experiments import benchmark
+from experiments import benchmark, cases, reporting, runner
 from src.baselines.errors import solver_error_status
 assert solver_error_status(ImportError('missing package')) == 'ERROR'
 for name in ('pysat', 'ortools', 'gurobipy', 'cplex', 'docplex', 'openpyxl'):
@@ -142,15 +143,15 @@ for name in ('pysat', 'ortools', 'gurobipy', 'cplex', 'docplex', 'openpyxl'):
                 subprocess.run([sys.executable, "-c", """
 import sys
 from importlib import import_module
-from experiments import benchmark
+from experiments import benchmark, cases, reporting, runner
 from src.baselines.errors import solver_error_status
 method, expected = sys.argv[1:]
 if method == 'sat':
-    benchmark.load_sat_encoder('pairwise')
+    cases.load_sat_encoder('pairwise')
     import_module('pysat.solvers')
     assert 'src.sat_encodings.binary' not in sys.modules
 else:
-    benchmark.load_baseline_solver(method)
+    cases.load_baseline_solver(method)
 assert solver_error_status(RuntimeError('License expired')) == 'LICENSE_LIMIT'
 loaded = {name for name in ('pysat', 'ortools', 'gurobipy', 'cplex', 'docplex', 'openpyxl')
           if name in sys.modules}
@@ -163,25 +164,25 @@ if method == 'cplex-cp':
 """, method, expected], check=True)
         for n, expected in ((4, "SAT"), (2, "UNSAT")):
             with self.subTest(n=n):
-                self.assertEqual(benchmark.run_with_timeout(n, "sat", "pairwise", 10)["status"], expected)
-        result = benchmark.run_with_timeout(4, "sat", "invalid-encoding", 10)
+                self.assertEqual(runner.run_with_timeout(n, "sat", "pairwise", 10)["status"], expected)
+        result = runner.run_with_timeout(4, "sat", "invalid-encoding", 10)
         self.assertEqual(result["status"], "ERROR")
         self.assertIn("KeyError", result["error"])
         # A spawned worker must use the parent's selected backend, not reload
         # the module default and silently run a different solver.
         with patch.object(sat_solver, "SAT_SOLVER", "invalid-solver"):
-            result = benchmark.run_with_timeout(4, "sat", "pairwise", 10)
+            result = runner.run_with_timeout(4, "sat", "pairwise", 10)
         self.assertEqual(result["status"], "ERROR")
         self.assertIn("NoSuchSolverError", result["error"])
 
     def test_all_sat_encodings_produce_correct_benchmark_results(self):
-        for encoding in benchmark.SAT_ENCODERS:
+        for encoding in cases.SAT_ENCODERS:
             for n in (1, 2, 3, 4, 8):
                 with self.subTest(encoding=encoding, n=n):
-                    clauses, _ = benchmark.build_sat_nqueens(n, benchmark.load_sat_encoder(encoding))
+                    clauses, _ = nqueens.build_sat_nqueens(n, cases.load_sat_encoder(encoding))
                     with patch("pysat.solvers.Solver", wraps=import_module("pysat.solvers").Solver) as create_solver:
                         model = sat_solver.solve_cnf(clauses)
-                        row = benchmark.benchmark_sat_once(n, encoding)
+                        row = cases.benchmark_sat_once(n, encoding)
                     self.assertEqual(create_solver.call_count, 2)
                     for call in create_solver.call_args_list:
                         self.assertEqual(call.kwargs["name"], sat_solver.SAT_SOLVER)
@@ -190,16 +191,17 @@ if method == 'cplex-cp':
                     self.assertGreaterEqual(row["total_variables"], n * n)
 
     def test_variable_counting_uses_pool_without_rescanning_literals(self):
-        for encoding in benchmark.SAT_ENCODERS:
-            encoder_type = benchmark.load_sat_encoder(encoding)
+        for encoding in cases.SAT_ENCODERS:
+            encoder_type = cases.load_sat_encoder(encoding)
             for n in (1, 4, 8):
                 with self.subTest(encoding=encoding, n=n):
-                    clauses, total_variables = benchmark.build_sat_nqueens(n, encoder_type)
+                    clauses, total_variables = nqueens.build_sat_nqueens(n, encoder_type)
                     # Scan only these tiny test fixtures to independently check counts.
                     expected = max(abs(literal) for clause in clauses for literal in clause)
                     self.assertEqual(total_variables, expected)
-                    with patch.object(benchmark, "abs", side_effect=AssertionError("CNF rescanned"), create=True):
-                        row = benchmark.benchmark_sat_once(n, encoding)
+                    with patch.object(cases, "abs", side_effect=AssertionError("CNF rescanned"), create=True), \
+                         patch.object(nqueens, "abs", side_effect=AssertionError("CNF rescanned"), create=True):
+                        row = cases.benchmark_sat_once(n, encoding)
                     self.assertEqual(row["total_variables"], expected)
                     self.assertEqual(row["auxiliary_variables"], expected - n * n)
 
@@ -212,7 +214,7 @@ if method == 'cplex-cp':
                  patch.object(benchmark, "N_VALUES", [4]), \
                  patch.object(benchmark, "REPETITIONS", 1), \
                  patch.object(benchmark, "benchmark_configurations", return_value=[("sat", "pairwise", sat_solver.SAT_SOLVER)]), \
-                 patch.object(benchmark, "run_with_timeout", return_value={**benchmark.benchmark_sat_once(4, "pairwise"), "error": None, "peak_memory_mb": 42.0}), \
+                 patch.object(benchmark, "run_with_timeout", return_value={**cases.benchmark_sat_once(4, "pairwise"), "error": None, "peak_memory_mb": 42.0}), \
                  contextlib.redirect_stdout(io.StringIO()):
                 run_benchmark()
                 first_files = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
@@ -223,7 +225,7 @@ if method == 'cplex-cp':
             for path in root.glob("*/environment.txt"):
                 metadata = dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
                 self.assertTrue(metadata["cpu_model"].strip())
-                self.assertEqual(int(metadata["physical_ram_bytes"]), benchmark.psutil.virtual_memory().total)
+                self.assertEqual(int(metadata["physical_ram_bytes"]), reporting.psutil.virtual_memory().total)
                 self.assertAlmostEqual(float(metadata["physical_ram_gib"]),
                                        int(metadata["physical_ram_bytes"]) / 1024**3, places=3)
             for path, contents in first_files.items():

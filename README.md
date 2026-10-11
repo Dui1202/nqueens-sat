@@ -1,5 +1,14 @@
 # N-Queens SAT benchmark
 
+## Overview
+
+This project studies SAT encodings for the N-Queens problem.
+Five At-Most-One encodings are evaluated: Pairwise, Binary,
+Sequential Counter, Commander, and Product. Their CNF size,
+runtime, and memory consumption are compared using CaDiCaL,
+and the SAT approach is additionally compared with CP-SAT,
+CP Optimizer, CPLEX MIP, and Gurobi MIP.
+
 Run from the repository root with the project's Python environment:
 
 ```sh
@@ -9,6 +18,18 @@ Run from the repository root with the project's Python environment:
 
 `main.benchmark()` runs the full benchmark. The existing
 `.venv/bin/python -m experiments.benchmark` entry point is also supported.
+
+The benchmark is split by responsibility:
+
+- `experiments/benchmark.py`: experiment settings, warm-ups, and measured-run orchestration.
+- `experiments/cases.py`: lazy encoder/solver registry and per-case measurements.
+- `experiments/runner.py`: spawned workers, hard timeouts, process cleanup, and memory sampling.
+- `experiments/reporting.py`: result schema, CSV writing, and environment metadata.
+- `experiments/export_xlsx.py`: workbook generation from the raw CSV.
+- `src/nqueens.py`: CNF construction, SAT model conversion, and placement validation.
+
+The orchestrator passes experiment settings explicitly to the runner and metadata
+writer; neither module imports the orchestrator.
 
 All solvers use one search worker/thread: CP-SAT sets `num_search_workers=1`,
 Gurobi sets `Threads=1`, CPLEX MIP sets `threads=1`, and CP Optimizer sets

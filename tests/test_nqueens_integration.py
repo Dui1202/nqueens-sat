@@ -97,7 +97,7 @@ class NQueensIntegrationTests(unittest.TestCase):
     def test_benchmark_builder_produces_valid_eight_queens_board(self):
         # Keep this import local so a broken application import does not
         # prevent the independent encoder cases from running.
-        from experiments.benchmark import build_sat_nqueens
+        from src.nqueens import build_sat_nqueens
 
         clauses, total_variables = build_sat_nqueens(8, PairWiseEncoder)
         self.assertEqual(total_variables, 64)
