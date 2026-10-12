@@ -1,10 +1,10 @@
-experiment_id=20261009T051930Z-b9346a64892641f389a2e3c38ccf1f48
-created_utc=2026-10-09T05:19:30.160326+00:00
-n_values=[8, 16, 32, 64, 128, 256]
+experiment_id=20261011T053840Z-3b2ca03ff5d34c5f81b68a09ea823415
+created_utc=2026-10-11T05:38:40.635147+00:00
+n_values=[8, 16, 20, 24, 28, 32, 64, 128, 256]
 platform=Linux-7.2.3-arch1-3-x86_64-with-glibc2.44
 machine=x86_64
 cpu_model=12th Gen Intel(R) Core(TM) i7-12700H
-physical_ram_bytes=16537796608
+physical_ram_bytes=16537792512
 physical_ram_gib=15.402
 python=3.14.7 (main, Aug 10 2026, 07:46:56) [GCC 16.1.1 20260728]
 cpu_count=20

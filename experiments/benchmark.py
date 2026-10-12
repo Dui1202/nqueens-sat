@@ -1,4 +1,5 @@
 """Configure and orchestrate the N-Queens benchmark matrix."""
+
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -11,7 +12,7 @@ from experiments.reporting import BenchmarkResult, append_result, save_environme
 from experiments.runner import run_with_timeout
 from src import solver as sat_solver
 
-N_VALUES = [8, 16, 32, 64, 128, 256]
+N_VALUES = [8, 16, 20, 24, 28, 32, 64, 128, 256]
 REPETITIONS = 5
 WARMUP_RUNS = 1
 TIMEOUT_SECONDS = 60.0
@@ -57,10 +58,14 @@ def main() -> None:
             for warmup in range(1, WARMUP_RUNS + 1):
                 print(
                     f"Warm-up N={n:<4} {configuration_name:<20} run={warmup}",
-                    end=" ", flush=True,
+                    end=" ",
+                    flush=True,
                 )
                 warmup_result = run_with_timeout(
-                    n, method, encoding, TIMEOUT_SECONDS,
+                    n,
+                    method,
+                    encoding,
+                    TIMEOUT_SECONDS,
                     memory_sample_interval=MEMORY_SAMPLE_INTERVAL_SECONDS,
                 )
                 print(f"-> {warmup_result['status']}")
