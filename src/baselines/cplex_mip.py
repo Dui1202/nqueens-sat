@@ -102,6 +102,8 @@ def solve_nqueens_cplex_mip(n: int, timeout: float | None = None) -> SolveResult
         return SolveResult("UNSAT")
 
     if not model.solution.is_primal_feasible():
+        if status == model.solution.status.mem_limit_infeasible:
+            return SolveResult("OOM", error="CPLEX reached its memory limit")
         if status in (model.solution.status.MIP_time_limit_infeasible,
                       model.solution.status.abort_time_limit):
             return SolveResult("TIMEOUT")

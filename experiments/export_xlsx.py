@@ -15,7 +15,7 @@ INTEGER_COLUMNS = {
     "total_variables", "clauses",
 }
 TIME_COLUMNS = {"build_time", "solve_time", "total_time"}
-MEMORY_COLUMNS = {"peak_memory_mb"}
+MEMORY_COLUMNS = {"peak_memory_mb", "memory_limit_mb"}
 
 
 def export_csv_to_xlsx(csv_path: Path) -> Path:

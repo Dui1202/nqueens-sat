@@ -48,10 +48,16 @@ class BenchmarkRegressionTests(unittest.TestCase):
                 pid = int(pid_file.read_text())
                 deadline = time.monotonic() + 1
                 state = Path(f"/proc/{pid}/stat")
-                while state.exists() and state.read_text().split()[2] != "Z" and time.monotonic() < deadline:
+
+                def still_running():
+                    try:
+                        return state.read_text().split()[2] != "Z"
+                    except (FileNotFoundError, ProcessLookupError):
+                        return False
+
+                while still_running() and time.monotonic() < deadline:
                     time.sleep(0.01)
-                self.assertTrue(not state.exists() or state.read_text().split()[2] == "Z",
-                                "Timed-out external solver is still running")
+                self.assertFalse(still_running(), "Timed-out external solver is still running")
             finally:
                 if pid_file.exists():
                     try:
@@ -84,6 +90,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
         for status, expected in (
             (statuses.MIP_abort_infeasible, "UNKNOWN"),
             (statuses.MIP_time_limit_infeasible, "TIMEOUT"),
+            (statuses.mem_limit_infeasible, "OOM"),
             (statuses.MIP_infeasible, "UNSAT"),
         ):
             with self.subTest(status=status):
@@ -100,6 +107,7 @@ class BenchmarkRegressionTests(unittest.TestCase):
     def test_gurobi_preserves_inconclusive_and_infeasible_statuses(self):
         for status, expected in (
             (GRB.INTERRUPTED, "UNKNOWN"), (GRB.TIME_LIMIT, "TIMEOUT"),
+            (GRB.MEM_LIMIT, "OOM"),
             (GRB.INFEASIBLE, "UNSAT"),
         ):
             with self.subTest(status=status):

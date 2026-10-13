@@ -35,6 +35,7 @@ class BenchmarkResult:
 
     peak_memory_mb: float | None = None
     error: str | None = None
+    memory_limit_mb: float | None = None
 
 
 def append_result(
@@ -112,6 +113,7 @@ def save_environment(
     repetitions: int,
     warmup_runs: int,
     memory_sample_interval: float,
+    memory_limit_mb: float | None = None,
 ) -> None:
     results_dir.mkdir(
         parents=True,
@@ -132,12 +134,16 @@ def save_environment(
         f"cpu_count={os.cpu_count()}",
         f"sat_solver={sat_solver_name}",
         "solver_threads=1",
+        "worker_dependency_threads=1 (OpenBLAS, OpenMP, MKL, NumExpr)",
         "solver_import_policy=lazy_selected_backend_and_dependencies",
         f"timeout_seconds={timeout_seconds}",
         f"repetitions={repetitions}",
         f"warmup_runs={warmup_runs}",
         f"memory_sample_interval_seconds={memory_sample_interval}",
         "peak_memory_metric=sampled worker-plus-descendants RSS in decimal MB",
+        f"memory_limit_mb={memory_limit_mb if memory_limit_mb is not None else 'auto'}",
+        "memory_budget_policy=explicit: configured ceiling; auto: min(4096 MB, half available host/cgroup-v2 memory); both respect inherited Linux RLIMIT_AS",
+        "memory_limit_enforcement=Linux RLIMIT_AS per process plus sampled process-tree RSS watchdog; other platforms RSS watchdog only",
     ]
 
     for package in ("python-sat", "ortools", "gurobipy", "cplex", "docplex", "psutil"):

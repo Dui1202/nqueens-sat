@@ -68,6 +68,8 @@ def solve_nqueens_gurobi(n: int, timeout: float | None = None) -> SolveResult:
         return SolveResult("UNSAT")
 
     if model.SolCount == 0:
+        if model.Status == GRB.MEM_LIMIT:
+            return SolveResult("OOM", error="Gurobi reached its memory limit")
         if model.Status == GRB.TIME_LIMIT:
             return SolveResult("TIMEOUT")
         return SolveResult("UNKNOWN")

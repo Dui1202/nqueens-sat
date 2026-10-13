@@ -24,6 +24,7 @@ The benchmark is split by responsibility:
 - `experiments/benchmark.py`: experiment settings, warm-ups, and measured-run orchestration.
 - `experiments/cases.py`: lazy encoder/solver registry and per-case measurements.
 - `experiments/runner.py`: spawned workers, hard timeouts, process cleanup, and memory sampling.
+- `experiments/memory.py`: per-run memory budgets and Linux allocation limits.
 - `experiments/reporting.py`: result schema, CSV writing, and environment metadata.
 - `experiments/export_xlsx.py`: workbook generation from the raw CSV.
 - `src/nqueens.py`: CNF construction, SAT model conversion, and placement validation.
@@ -36,12 +37,17 @@ Gurobi sets `Threads=1`, CPLEX MIP sets `threads=1`, and CP Optimizer sets
 `Workers=1`. The PySAT CaDiCaL backend is sequential. This policy applies to
 both warm-up and measured runs and is recorded as `solver_threads=1` in
 `environment.txt`.
+Workers also set `OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
+and `NUMEXPR_NUM_THREADS` to 1 before solver imports, preventing dependency
+thread pools from consuming the memory budget at startup. This does not change
+the controller's environment. OpenBLAS documents its thread setting in its
+[usage guide](https://github.com/OpenMathLib/OpenBLAS/blob/develop/USAGE.md).
 
 The benchmark uses `python-sat`, `ortools`, `gurobipy`, `cplex`, and
 `docplex`, plus `openpyxl` for Excel export and `psutil` for memory sampling
 (`.venv/bin/python -m pip install -r requirements.txt`). Commercial solvers also need their runtime and license; CP Optimizer
 needs its executable available to DOcplex. Configure board sizes, repetitions,
-and the timeout at the top of `experiments/benchmark.py`.
+the timeout, and `MEMORY_LIMIT_MB` at the top of `experiments/benchmark.py`.
 The shared SAT backend is configured by `SAT_SOLVER` in `src/solver.py`
 (currently `cadical195`). Both direct solves and benchmarks call the same
 `solve_cnf()` implementation, including solver initialization and model extraction.
@@ -86,6 +92,11 @@ This recreates the adjacent `.xlsx` file and leaves the CSV unchanged.
 - `UNKNOWN`: the solver stopped without a placement or proof of infeasibility.
 - `TIMEOUT`: the worker exceeded its wall-clock budget, or a baseline explicitly
   reported a time limit without a placement.
+- `OOM`: a Python/native allocation failure, solver memory limit, or worker-tree
+  RSS budget violation. The diagnostic is recorded in `error`.
+- `WORKER_KILLED`: the worker received SIGKILL without a confirmed OOM diagnostic.
+  This can be an OS OOM kill or an external kill; the exit signal alone cannot
+  distinguish them.
 - `LICENSE_LIMIT`: a missing, expired, or restricted solver license prevented
   the run, including Community Edition problem-size limits. The original
   diagnostic remains in the `error` column.
@@ -130,6 +141,31 @@ limits as well. On POSIX, workers and external solver descendants share a privat
 process group that is terminated and then killed during cleanup. Windows uses
 `taskkill /T /F` to stop a live worker and its descendants. Cleanup has bounded
 waits and may take a short additional interval beyond the benchmark budget.
+
+`MEMORY_LIMIT_MB = None` enables automatic memory budgeting: each run receives
+at most 4096 decimal MB and half the currently available host memory. Visible
+Linux cgroup v2 limits (including ancestors) also constrain available memory.
+Set a number, such as `MEMORY_LIMIT_MB = 8000` (8 GB), to use that ceiling directly;
+explicit budgets are not reduced to half the available memory or capped at 4096 MB.
+The actual budget is stored in each measured row's
+`memory_limit_mb` column, also respecting any smaller inherited Linux address-space
+limit; metadata records the policy. Both warm-ups and measured
+runs use this policy and continue after OOM, timeout, license failures, or crashes.
+Every measured result is appended to CSV immediately, including failed runs.
+
+On Linux, workers install a hard `RLIMIT_AS` before importing a solver; external
+solver processes inherit it. This limits virtual address space (including library
+mappings), so failure can occur below the reported RSS peak. The controller also
+monitors aggregate worker-plus-descendants RSS and stops the process group when
+it exceeds the budget. Native crashes retain up to 8 KiB of stderr in the error
+column; explicit allocation diagnostics are classified as OOM. Allocation limits
+never apply to the controller. See Python's [resource limits](https://docs.python.org/3/library/resource.html)
+and the kernel's [cgroup v2 memory controller](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+
+Other platforms use the sampled RSS watchdog only. Sampling can miss fast peaks,
+and process isolation cannot protect against a system-wide kill or termination
+of the entire container/job. Linux allocation limits and reserved headroom reduce
+this risk; they do not guarantee immunity to external memory pressure.
 
 Solver imports are lazy: each worker loads only its selected solver library
 and that library's dependencies. SAT workers load only their selected encoder.

@@ -12,11 +12,12 @@ from experiments.reporting import BenchmarkResult, append_result, save_environme
 from experiments.runner import run_with_timeout
 from src import solver as sat_solver
 
-N_VALUES = [8, 16, 20, 24, 28, 32, 64, 128, 256]
+N_VALUES = [8, 16, 32, 64, 128, 256, 512, 1024]
 REPETITIONS = 5
 WARMUP_RUNS = 1
 TIMEOUT_SECONDS = 60.0
 MEMORY_SAMPLE_INTERVAL_SECONDS = 0.01
+MEMORY_LIMIT_MB = 8000
 RESULTS_DIR = Path("results")
 
 
@@ -37,6 +38,7 @@ def main() -> None:
         repetitions=REPETITIONS,
         warmup_runs=WARMUP_RUNS,
         memory_sample_interval=MEMORY_SAMPLE_INTERVAL_SECONDS,
+        memory_limit_mb=MEMORY_LIMIT_MB,
     )
 
     configurations = list(benchmark_configurations())
@@ -49,6 +51,7 @@ def main() -> None:
     print(f"Warm-ups: {WARMUP_RUNS} per board/configuration (not saved)")
 
     print(f"Timeout: {TIMEOUT_SECONDS:.0f}s/run")
+    print(f"Memory limit: {MEMORY_LIMIT_MB if MEMORY_LIMIT_MB is not None else 'auto (max 4096)'} MB/run")
 
     print()
 
@@ -67,6 +70,7 @@ def main() -> None:
                     encoding,
                     TIMEOUT_SECONDS,
                     memory_sample_interval=MEMORY_SAMPLE_INTERVAL_SECONDS,
+                    memory_limit_mb=MEMORY_LIMIT_MB,
                 )
                 print(f"-> {warmup_result['status']}")
                 if warmup_result["error"]:
@@ -93,6 +97,7 @@ def main() -> None:
                     encoding=encoding,
                     timeout=TIMEOUT_SECONDS,
                     memory_sample_interval=MEMORY_SAMPLE_INTERVAL_SECONDS,
+                    memory_limit_mb=MEMORY_LIMIT_MB,
                 )
 
                 result = BenchmarkResult(
@@ -110,6 +115,7 @@ def main() -> None:
                     solve_time=raw["solve_time"],
                     total_time=raw["total_time"],
                     peak_memory_mb=raw["peak_memory_mb"],
+                    memory_limit_mb=raw.get("memory_limit_mb"),
                     error=raw["error"],
                 )
 
