@@ -85,6 +85,46 @@ To convert an existing CSV, or refresh its workbook after editing the CSV:
 
 This recreates the adjacent `.xlsx` file and leaves the CSV unchanged.
 
+## Report figures
+
+Generate four figures from one existing experiment without rerunning solvers:
+
+```sh
+.venv/bin/python -m experiments.plot_figures results/<experiment-id>/raw_results.csv
+```
+
+Requires `pandas` and `matplotlib` (included in `requirements.txt`). Outputs go to
+the CSV's adjacent `figures/` directory; use `--output-dir PATH` to override it.
+Each figure is saved as a 300-dpi PNG and a vector PDF:
+
+1. `01_cnf_clause_growth`: measured clause counts for the five SAT encodings,
+   with one deterministic count per encoding/N. Missing counts after failures
+   remain missing; this figure does not estimate or extrapolate them.
+2. `02_sat_runtime`: arithmetic mean of `total_time` for `status == "SAT"` only,
+   grouped by encoding/N. Five measured repetitions are expected by default
+   (`--repetitions` overrides this); partial successful groups are labelled k/5.
+3. `03_cross_paradigm_runtime`: minimum of the encoding-level successful means
+   at each N versus successful means for CP-SAT, CPLEX MIP, and CPLEX CP. The SAT
+   envelope is a post-hoc best-observed selection, not one fixed solver strategy.
+   Its available encoding counts are printed below the plot. Gurobi is omitted,
+   with observed license-censored sizes noted explicitly.
+4. `04_sat_peak_memory`: mean per-run sampled peak RSS for the five SAT encodings,
+   grouped separately by encoding/N/status. Lines show successful runs; crosses
+   show OOM and triangles show timeout peaks before termination. Failure markers
+   have small horizontal display offsets to keep overlapping measurements visible.
+   A constant recorded memory limit is drawn when available. Linux address-space
+   limits can cause OOM below that RSS level; failed-run peaks do not measure the
+   memory needed to complete the problem.
+
+All figures use logarithmic y axes and a base-2 logarithmic N axis. Both runtime
+figures use `total_time` (build + solve + placement extraction) for comparable
+timing scope across paradigms. OOM/timeout/license failures never enter successful
+runtime means or become zero-valued points. Missing successful groups break lines.
+Summary CSVs retain clause counts, successful means and sample counts, the chosen
+SAT encoding at each N, memory by status, and all run-status counts for auditing.
+The script uses a headless Matplotlib backend; on a machine with a read-only home
+directory, prefix the command with `MPLCONFIGDIR=/tmp/nqueens-matplotlib`.
+
 ## Results and timing
 
 - `SAT`: a placement was found and independently verified.

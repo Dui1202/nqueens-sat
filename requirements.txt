@@ -10,5 +10,9 @@ docplex==2.32.264
 openpyxl>=3.1.5,<4
 psutil>=7.2,<8
 
+# Report figures from benchmark CSV files.
+pandas>=2.2,<4
+matplotlib>=3.8,<4
+
 # Tests use Python's built-in unittest; no separate test package is required.
 # CP Optimizer's executable and commercial licenses are installed separately.

@@ -1,0 +1,8 @@
+method,best_encoding,n,mean_total_time_s,sat_runs,available_encodings
+sat,pairwise,8,0.00051530759956216,5,5
+sat,commander,16,0.00317149379952746,5,5
+sat,product,32,0.01150006879979624,5,5
+sat,commander,64,0.06941435760018064,5,5
+sat,product,128,0.4808927450001647,5,5
+sat,binary,256,2.1950841119996767,5,4
+sat,binary,512,12.265263770999809,5,2
